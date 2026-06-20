@@ -1,0 +1,150 @@
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Imports that depend on environment variables will be done inside main()
+
+
+def main() -> None:
+    # Load .env from repository root if present to ease local testing
+    repo_root = Path(__file__).resolve().parents[2]
+    env_path = repo_root / ".env"
+    load_dotenv(env_path)
+
+    from .dart_api import DartClient
+    from .telegram import TelegramClient
+
+    dart_client = DartClient()
+    telegram_client = TelegramClient()
+    from .formatter import format_disclosure_4part
+    import json
+
+    print("Running DartBOT local smoke test...")
+    print("DART API key loaded:", bool(dart_client.api_key))
+    print("Telegram chat loaded:", bool(telegram_client.chat_id))
+
+    company_code = os.getenv("DART_CORP_CODE")
+    if not company_code:
+        raise SystemExit("Set DART_CORP_CODE in environment for local DART company query")
+
+    disclosures = dart_client.get_company_disclosures(corp_code=company_code)
+    print("DART disclosure response keys:", list(disclosures.keys()))
+
+    # Print a safe, pretty-printed snippet of the DART response
+    try:
+        pretty = json.dumps(disclosures, ensure_ascii=False, indent=2)
+        print("Raw DART response (truncated 1000 chars):")
+        print(pretty[:1000])
+    except Exception:
+        print("Could not pretty-print DART response")
+
+    # If disclosures contain a 'list' of items, format the first one
+    first_item = None
+    if isinstance(disclosures, dict):
+        if "list" in disclosures and disclosures.get("list"):
+            first_item = disclosures["list"][0]
+        # Some DART endpoints return data under 'message' as nested JSON string
+        elif isinstance(disclosures.get("message"), list) and disclosures.get("message"):
+            first_item = disclosures.get("message")[0]
+
+    if first_item:
+        print("\nFormatted 4-part message for first disclosure:\n")
+        print(format_disclosure_4part(first_item))
+    else:
+        print("No disclosure items to format from DART response.")
+
+    # Use monitor to detect new disclosures vs local state
+    from .monitor import get_new_disclosures
+
+    state_file = repo_root / ".dartbot_state.json"
+    new_items = get_new_disclosures(disclosures, company_code, state_file)
+    print(f"New disclosures detected: {len(new_items)}")
+
+    try:
+        resp = telegram_client.send_hello()
+        print("Telegram send_hello response keys:", list(resp.keys()))
+    except Exception as e:
+        # Avoid printing secrets; show the error summary and any JSON body if available
+        print("Telegram send_hello failed:", str(e))
+        try:
+            # attempt to show JSON error body from requests.Response if present
+            import requests as _req
+
+            if isinstance(e, _req.exceptions.HTTPError) and e.response is not None:
+                print("Telegram error body:", e.response.json())
+        except Exception:
+            pass
+    # --- Begin full v1 monitoring run per spec 8 ---
+    print("\nStarting full v1 monitoring run...")
+    from config.companies import WATCH_COMPANIES
+    from config.keywords import TRIGGER_KEYWORDS
+    from .formatter import build_v1_message
+    from .monitor import get_new_disclosures
+    from datetime import datetime, timedelta, timezone
+
+    # determine seen.json location (Railway: /data/seen.json via env)
+    seen_path = Path(os.getenv("SEEN_PATH") or repo_root / "state" / "seen.json")
+    seen_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # compute KST today and yesterday (KST = UTC+9)
+    KST = timezone(timedelta(hours=9))
+    now_kst = datetime.now(KST)
+    today = now_kst.strftime("%Y%m%d")
+    yesterday = (now_kst - timedelta(days=1)).strftime("%Y%m%d")
+
+    types = ["B", "D", "I"]
+    total_new = 0
+
+    for company_name, corp_code in WATCH_COMPANIES.items():
+        print(f"Checking {company_name} ({corp_code}) from {yesterday} to {today}")
+        for pblntf_ty in types:
+            try:
+                resp = dart_client.get_company_disclosures(
+                    corp_code=corp_code,
+                    pblntf_ty=pblntf_ty,
+                    bgn_de=yesterday,
+                    end_de=today,
+                    page_count=100,
+                    sort_mth="desc",
+                )
+            except Exception as e:
+                print(f"DART API error for {corp_code} type {pblntf_ty}: {e}")
+                continue
+
+            status = resp.get("status")
+            if status == "013":
+                # no data
+                continue
+            if status != "000":
+                print(f"DART returned status {status} for {corp_code} type {pblntf_ty}")
+                continue
+
+            # filter by keywords for this type
+            keywords = TRIGGER_KEYWORDS.get(pblntf_ty, [])
+            new_items = get_new_disclosures(resp, corp_code, seen_path, include_keywords=keywords)
+            print(f"  type {pblntf_ty}: found {len(new_items)} new trigger items")
+
+            for item in new_items:
+                # find first matching keyword
+                title = str(item.get("report_nm") or "")
+                matched = None
+                norm = title.replace(" ", "")
+                for kw in keywords:
+                    if kw.replace(" ", "") in norm:
+                        matched = kw
+                        break
+
+                text = build_v1_message(item, pblntf_ty, matched)
+                try:
+                    send_resp = telegram_client.send_message(text)
+                    print("    Telegram sent, ok=", send_resp.get("ok"))
+                    total_new += 1
+                except Exception as e:
+                    print("    Telegram send failed:", e)
+
+    print(f"Full run complete — total new alerts sent: {total_new}")
+
+
+if __name__ == "__main__":
+    main()
