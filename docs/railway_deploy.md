@@ -27,10 +27,19 @@ Railway 배포 체크리스트 (단계별)
 6) Scheduler(Job) 설정 (Cron)
 - Railway UI에서 Jobs / Scheduler 추가
   - Command: `python -m dartbot.cli`
-  - Schedule (UTC): `30 8 * * 1-5`  # KST 평일 17:30
+  - Schedule (UTC): `0 9 * * 1-5`  # KST 평일 18:00
 
 7) Deploy 및 로그 확인
 - 처음 배포 후 Logs에서 실행 결과를 확인하세요. `telegram` 전송 성공 여부와 `seen.json` 파일 생성 여부를 확인합니다.
+- 예상 로그 패턴:
+  - `Running DartBOT local smoke test...`
+  - `DART API key loaded: True`
+  - `Telegram chat loaded: True`
+  - `Starting full v1 monitoring run...`
+  - `Checking SK주식회사 (034730) from YYYYMMDD to YYYYMMDD`
+  - `Full run complete — total new alerts sent: X`
+- `status == 013`은 데이터가 없는 정상 상태입니다. 이 경우 알림은 없지만 실행 자체는 정상입니다.
+- 실제 메시지 전송이 정상인지 확인하려면 `Telegram api` 로그에서 `send_hello` 또는 `Telegram sent, ok=` 항목이 있는지 확인합니다.
 
 8) SEEN_PATH와 권한
 - Railway 컨테이너에서 `SEEN_PATH`로 지정한 경로(`/data/seen.json`)에 쓰기 권한이 있어야 합니다. `state/seen.json` 로컬 샘플은 개발용이며, 배포 시에는 `/data/seen.json`을 사용하세요.
