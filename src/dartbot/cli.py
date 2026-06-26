@@ -1,9 +1,17 @@
 import os
+import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
+# Bootstrap: make src/ and repo root importable regardless of how this
+# script is invoked (python -m, direct execution, Railway Nixpacks, etc.)
+_HERE = Path(__file__).resolve()
+_SRC = str(_HERE.parents[1])   # .../src
+_REPO = str(_HERE.parents[2])  # repo root
+for _p in (_SRC, _REPO):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-# Imports that depend on environment variables will be done inside main()
+from dotenv import load_dotenv
 
 
 def main() -> None:
@@ -12,12 +20,12 @@ def main() -> None:
     env_path = repo_root / ".env"
     load_dotenv(env_path)
 
-    from .dart_api import DartClient
-    from .telegram import TelegramClient
+    from dartbot.dart_api import DartClient
+    from dartbot.telegram import TelegramClient
 
     dart_client = DartClient()
     telegram_client = TelegramClient()
-    from .formatter import format_disclosure_4part
+    from dartbot.formatter import format_disclosure_4part
     import json
 
     print("Running DartBOT local smoke test...")
@@ -55,7 +63,7 @@ def main() -> None:
         print("No disclosure items to format from DART response.")
 
     # Use monitor to detect new disclosures vs local state
-    from .monitor import get_new_disclosures
+    from dartbot.monitor import get_new_disclosures
 
     state_file = repo_root / ".dartbot_state.json"
     new_items = get_new_disclosures(disclosures, company_code, state_file)
@@ -79,8 +87,8 @@ def main() -> None:
     print("\nStarting full v1 monitoring run...")
     from config.companies import WATCH_COMPANIES
     from config.keywords import TRIGGER_KEYWORDS
-    from .formatter import build_v1_message
-    from .monitor import get_new_disclosures
+    from dartbot.formatter import build_v1_message
+    from dartbot.monitor import get_new_disclosures
     from datetime import datetime, timedelta, timezone
 
     # determine seen.json location (Railway: /data/seen.json via env)
