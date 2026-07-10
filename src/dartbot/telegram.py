@@ -20,6 +20,3 @@ class TelegramClient:
         response = requests.post(endpoint, json=payload, timeout=15)
         response.raise_for_status()
         return response.json()
-
-    def send_hello(self) -> dict[str, any]:
-        return self.send_message("Hello from DartBOT! 📡")

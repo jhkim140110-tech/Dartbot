@@ -56,9 +56,16 @@ def build_v1_message(disclosure: Dict[str, Any], pblntf_ty: str, matched_keyword
     }
     type_ko = type_map.get(pblntf_ty, pblntf_ty)
 
-    impact = "키워드 기반 영향도 미정"
+    impact_map = {
+        "최대주주": "대주주·기관 지분 이동, 행동주의·승계 관측 가능성",
+        "대량보유": "대주주·기관 지분 이동, 행동주의·승계 관측 가능성",
+        "자기주식": "주주환원 시그널, 주가·밸류업 문맥 보도 예상",
+        "소송": "법적 리스크, 해명·입장문 준비 필요",
+        "조회공시": "거래소 해명 요구, 즉시 대응 필수",
+    }
+
     if matched_keyword:
-        impact = f"관련 키워드: {matched_keyword} — PR 영향도 검토 필요"
+        impact = impact_map.get(matched_keyword, "분류 외 — 원문 확인 필요")
     else:
         if pblntf_ty == "D":
             impact = "지분 이동/행동주의 가능성 검토"
@@ -66,6 +73,8 @@ def build_v1_message(disclosure: Dict[str, Any], pblntf_ty: str, matched_keyword
             impact = "중대 의사결정 관련 — 영향 검토"
         elif pblntf_ty == "I":
             impact = "거래소 조회·해명 관련 — 즉각 대응 필요 여부 확인"
+        else:
+            impact = "분류 외 — 원문 확인 필요"
 
     lines = [
         f"🔴 [공시 포착] {company}",

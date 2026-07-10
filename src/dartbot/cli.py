@@ -69,20 +69,6 @@ def main() -> None:
     new_items = get_new_disclosures(disclosures, company_code, state_file)
     print(f"New disclosures detected: {len(new_items)}")
 
-    try:
-        resp = telegram_client.send_hello()
-        print("Telegram send_hello response keys:", list(resp.keys()))
-    except Exception as e:
-        # Avoid printing secrets; show the error summary and any JSON body if available
-        print("Telegram send_hello failed:", str(e))
-        try:
-            # attempt to show JSON error body from requests.Response if present
-            import requests as _req
-
-            if isinstance(e, _req.exceptions.HTTPError) and e.response is not None:
-                print("Telegram error body:", e.response.json())
-        except Exception:
-            pass
     # --- Begin full v1 monitoring run per spec 8 ---
     print("\nStarting full v1 monitoring run...")
     from config.companies import WATCH_COMPANIES
@@ -95,23 +81,25 @@ def main() -> None:
     seen_path = Path(os.getenv("SEEN_PATH") or repo_root / "state" / "seen.json")
     seen_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # compute KST today and yesterday (KST = UTC+9)
+    # compute KST today and the lookback range (KST = UTC+9)
     KST = timezone(timedelta(hours=9))
     now_kst = datetime.now(KST)
     today = now_kst.strftime("%Y%m%d")
-    yesterday = (now_kst - timedelta(days=1)).strftime("%Y%m%d")
+    lookback_days = int(os.getenv("LOOKBACK_DAYS") or 2)
+    start_date = (now_kst - timedelta(days=lookback_days - 1)).strftime("%Y%m%d")
 
     types = ["B", "D", "I"]
+    type_counts = {"B": 0, "D": 0, "I": 0}
     total_new = 0
 
     for company_name, corp_code in WATCH_COMPANIES.items():
-        print(f"Checking {company_name} ({corp_code}) from {yesterday} to {today}")
+        print(f"Checking {company_name} ({corp_code}) from {start_date} to {today}")
         for pblntf_ty in types:
             try:
                 resp = dart_client.get_company_disclosures(
                     corp_code=corp_code,
                     pblntf_ty=pblntf_ty,
-                    bgn_de=yesterday,
+                    bgn_de=start_date,
                     end_de=today,
                     page_count=100,
                     sort_mth="desc",
@@ -148,8 +136,19 @@ def main() -> None:
                     send_resp = telegram_client.send_message(text)
                     print("    Telegram sent, ok=", send_resp.get("ok"))
                     total_new += 1
+                    if pblntf_ty in type_counts:
+                        type_counts[pblntf_ty] += 1
                 except Exception as e:
                     print("    Telegram send failed:", e)
+
+    heartbeat_text = (
+        f"📡 실행 완료 | 조회 B {type_counts['B']}·D {type_counts['D']}·I {type_counts['I']} | 신규 알림 {total_new}건"
+    )
+    try:
+        heartbeat_resp = telegram_client.send_message(heartbeat_text)
+        print("Heartbeat sent, ok=", heartbeat_resp.get("ok"))
+    except Exception as e:
+        print("Heartbeat send failed:", e)
 
     print(f"Full run complete — total new alerts sent: {total_new}")
 
