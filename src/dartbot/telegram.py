@@ -19,4 +19,11 @@ class TelegramClient:
         payload = {"chat_id": self.chat_id, "text": text}
         response = requests.post(endpoint, json=payload, timeout=15)
         response.raise_for_status()
-        return response.json()
+        json_data = response.json()
+        if not json_data.get("ok"):
+            description = json_data.get("description", "No description returned")
+            raise RuntimeError(f"Telegram API error: {description}")
+        return json_data
+
+    def send_telegram(self, text: str) -> dict[str, any]:
+        return self.send_message(text)

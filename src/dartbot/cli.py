@@ -133,7 +133,8 @@ def main() -> None:
 
                 text = build_v1_message(item, pblntf_ty, matched)
                 try:
-                    send_resp = telegram_client.send_message(text)
+                    print("    Sending Telegram alert...")
+                    send_resp = telegram_client.send_telegram(text)
                     print("    Telegram sent, ok=", send_resp.get("ok"))
                     total_new += 1
                     if pblntf_ty in type_counts:
@@ -145,7 +146,8 @@ def main() -> None:
         f"📡 실행 완료 | 조회 B {type_counts['B']}·D {type_counts['D']}·I {type_counts['I']} | 신규 알림 {total_new}건"
     )
     try:
-        heartbeat_resp = telegram_client.send_message(heartbeat_text)
+        print("    Sending heartbeat Telegram message...")
+        heartbeat_resp = telegram_client.send_telegram(heartbeat_text)
         print("Heartbeat sent, ok=", heartbeat_resp.get("ok"))
     except Exception as e:
         print("Heartbeat send failed:", e)
